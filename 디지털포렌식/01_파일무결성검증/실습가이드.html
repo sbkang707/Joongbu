@@ -1,0 +1,544 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
+<title>SHA-256 무결성 검증 실습</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: 단일 읽기 칼럼(최대 860px) + 증거 태그 모티프 헤더, 코드/표는 칼럼 안에서 가로 스크롤 */
+:root {
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --sunken: #e9edf1;
+  --fg: #16202b;
+  --muted: #566372;
+  --line: #d3dae2;
+  --accent: #0f5c7a;
+  --accent-soft: #dbeaf1;
+  --tag: #b4730c;
+  --tag-soft: #fbefd9;
+  --ok: #1d7a46;
+  --ok-soft: #dcf1e3;
+  --bad: #b3261e;
+  --bad-soft: #fbe2df;
+  --code-bg: #101820;
+  --code-fg: #d9e2ea;
+  --code-cm: #7fb3a3;
+  --code-pp: #e0a96d;
+  --code-ln: #4f5f6e;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --step-0: 1rem;
+  --step-1: 1.2rem;
+  --step-2: 1.5rem;
+  --step-3: 2.1rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e141a; --surface: #151d25; --sunken: #1b252f; --fg: #e3e9ef; --muted: #98a6b4;
+    --line: #2a3642; --accent: #5fb3d3; --accent-soft: #15303d; --tag: #e6a54a; --tag-soft: #3a2c14;
+    --ok: #5cc98a; --ok-soft: #143222; --bad: #f08a80; --bad-soft: #3d1a17;
+    --code-bg: #0a0f14; --code-fg: #d9e2ea; --code-cm: #7fb3a3; --code-pp: #e0a96d; --code-ln: #44525f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e141a; --surface: #151d25; --sunken: #1b252f; --fg: #e3e9ef; --muted: #98a6b4;
+  --line: #2a3642; --accent: #5fb3d3; --accent-soft: #15303d; --tag: #e6a54a; --tag-soft: #3a2c14;
+  --ok: #5cc98a; --ok-soft: #143222; --bad: #f08a80; --bad-soft: #3d1a17;
+  --code-bg: #0a0f14; --code-fg: #d9e2ea; --code-cm: #7fb3a3; --code-pp: #e0a96d; --code-ln: #44525f;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: var(--step-0); line-height: 1.7;
+  padding-inline: 16px; padding-block: 0 64px;
+}
+.wrap { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.3; margin: 0; }
+h2 { font-size: var(--step-2); font-weight: 700; }
+h3 { font-size: var(--step-1); font-weight: 600; }
+p { margin: 0; }
+section { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+code, .mono { font-family: var(--font-mono); font-size: 0.92em; }
+:not(pre) > code { background: var(--sunken); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+/* 헤더: 증거물 태그 */
+header { padding-block: 40px 0; }
+.tag {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  display: grid; grid-template-columns: 1fr auto; gap: 0; overflow: hidden;
+}
+.tag-main { padding: 28px 28px 24px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.tag-main h1 { font-size: var(--step-3); font-weight: 700; }
+.tag-main p { color: var(--muted); max-width: 60ch; }
+.tag-side {
+  background: var(--tag-soft); border-left: 2px dashed var(--tag);
+  padding: 24px 22px; display: flex; flex-direction: column; gap: 10px; min-width: 190px;
+}
+.tag-side dl { margin: 0; display: grid; gap: 8px; }
+.tag-side dt { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tag); }
+.tag-side dd { margin: 0; font-weight: 600; font-size: 0.95rem; }
+.hashline {
+  font-family: var(--font-mono); font-size: 0.82rem; color: var(--muted);
+  border-top: 1px solid var(--line); padding-top: 12px; overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .tag { grid-template-columns: 1fr; }
+  .tag-side { border-left: 0; border-top: 2px dashed var(--tag); min-width: 0; }
+  .tag-main { padding: 22px 18px; }
+}
+
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; }
+nav.toc a {
+  text-decoration: none; color: var(--fg); background: var(--surface); border: 1px solid var(--line);
+  padding: 6px 12px; border-radius: 999px; font-size: 0.9rem;
+}
+nav.toc a:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 판정 다이어그램 */
+.verdict-diagram { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.vd { border-radius: 8px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
+.vd strong { font-family: var(--font-mono); font-size: 1.05rem; }
+.vd.ok { background: var(--ok-soft); color: var(--ok); }
+.vd.bad { background: var(--bad-soft); color: var(--bad); }
+.vd span { color: var(--fg); }
+@media (max-width: 520px) { .verdict-diagram { grid-template-columns: 1fr; } }
+.keypoint {
+  border-left: 3px solid var(--accent); background: var(--accent-soft);
+  padding: 14px 18px; border-radius: 0 8px 8px 0;
+}
+
+/* 표 */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { background: var(--sunken); font-weight: 600; white-space: nowrap; }
+td:first-child { white-space: nowrap; }
+td.num { font-family: var(--font-mono); color: var(--accent); font-weight: 600; }
+
+/* 실습 단계 */
+ol.steps { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0; counter-reset: s; }
+ol.steps > li {
+  counter-increment: s; position: relative; padding: 0 0 32px 56px; display: flex; flex-direction: column; gap: 10px; min-width: 0;
+}
+ol.steps > li::before {
+  content: counter(s); position: absolute; left: 0; top: 0;
+  width: 36px; height: 36px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--surface); border: 2px solid var(--accent); color: var(--accent);
+  font-family: var(--font-mono); font-weight: 600;
+}
+ol.steps > li::after {
+  content: ""; position: absolute; left: 17px; top: 40px; bottom: 6px; width: 2px; background: var(--line);
+}
+ol.steps > li:last-child::after { display: none; }
+ol.steps > li:last-child { padding-bottom: 0; }
+ol.steps ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+.note {
+  background: var(--tag-soft); border-radius: 6px; padding: 10px 14px; font-size: 0.93rem;
+}
+.note b { color: var(--tag); }
+
+/* 명령어 블록 */
+.cmd {
+  position: relative; background: var(--code-bg); color: var(--code-fg);
+  border-radius: 8px; padding: 12px 16px; font-family: var(--font-mono); font-size: 0.88rem;
+  overflow-x: auto; white-space: pre; margin: 0; line-height: 1.6;
+}
+.cmd .pr { color: var(--code-ln); user-select: none; }
+.out { background: var(--sunken); color: var(--fg); }
+.out .ok { color: var(--ok); font-weight: 600; }
+.out .bad { color: var(--bad); font-weight: 600; }
+.cmd-row { display: flex; gap: 8px; align-items: stretch; min-width: 0; }
+.cmd-row .cmd { flex: 1; min-width: 0; }
+button {
+  font: inherit; font-size: 0.85rem; cursor: pointer;
+  background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 해시 체험 */
+.lab { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.lab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 640px) { .lab-grid { grid-template-columns: 1fr; } }
+.pane { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.pane label { font-weight: 600; font-size: 0.92rem; }
+textarea {
+  font-family: var(--font-mono); font-size: 0.9rem; line-height: 1.5;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 10px 12px; resize: vertical; min-height: 96px; width: 100%;
+}
+textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.file-pick { font-size: 0.85rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.file-pick input { max-width: 100%; font-size: 0.85rem; }
+.digest {
+  font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.55; overflow-wrap: anywhere;
+  background: var(--sunken); border-radius: 6px; padding: 10px 12px; min-height: 3.2em;
+}
+.digest .d { color: var(--bad); background: var(--bad-soft); border-radius: 2px; }
+.meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); }
+.lab-foot { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.pill { font-weight: 600; padding: 6px 14px; border-radius: 999px; font-size: 0.92rem; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.opt { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; color: var(--muted); }
+.lab-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 주석 코드 */
+.code-head { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; }
+.code-box { background: var(--code-bg); border-radius: 10px; overflow: hidden; }
+.code-scroll { overflow: auto; max-height: 70vh; }
+pre.code { margin: 0; padding: 14px 0; font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.6; color: var(--code-fg); counter-reset: ln; }
+pre.code .l { display: block; padding-right: 20px; white-space: pre; }
+pre.code .l::before {
+  counter-increment: ln; content: counter(ln); display: inline-block; width: 3.4em; padding-right: 1em;
+  text-align: right; color: var(--code-ln); user-select: none;
+}
+pre.code .cm { color: var(--code-cm); }
+pre.code .pp { color: var(--code-pp); }
+pre.code .st { color: #c9b4f0; }
+
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+details > summary { cursor: pointer; padding: 12px 16px; font-weight: 600; }
+details > div { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 10px; }
+
+footer { color: var(--muted); font-size: 0.88rem; border-top: 1px solid var(--line); padding-top: 18px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="tag">
+    <div class="tag-main">
+      <span class="eyebrow">디지털 포렌식 · 실습 01</span>
+      <h1>Windows 파일 무결성 검증 (SHA-256)</h1>
+      <p>원본 파일과 복사된 증거 파일의 SHA-256 해시값을 C 프로그램으로 계산하고 비교합니다. 파일 이름이나 크기가 아니라 실제 데이터로 동일성을 판단하는 방법을 익힙니다.</p>
+      <div class="hashline">SHA-256("Digital Forensic Evidence…") → 64자리 16진수, 1바이트만 바뀌어도 전체가 달라짐</div>
+    </div>
+    <aside class="tag-side" aria-label="실습 정보">
+      <dl>
+        <div><dt>환경</dt><dd>Windows 10/11</dd></div>
+        <div><dt>도구</dt><dd>VS Code + cl.exe</dd></div>
+        <div><dt>API</dt><dd>Windows CNG (BCrypt)</dd></div>
+        <div><dt>알고리즘</dt><dd>SHA-256 · 32 Byte</dd></div>
+      </dl>
+    </aside>
+  </div>
+</header>
+
+<nav class="toc" aria-label="목차">
+  <a href="#goal">실습 목표</a>
+  <a href="#flow">프로그램 동작</a>
+  <a href="#steps">실습 단계</a>
+  <a href="#try">해시 체험</a>
+  <a href="#advanced">심화 실험</a>
+  <a href="#code">주석 코드</a>
+  <a href="#trouble">문제 해결</a>
+</nav>
+
+<section id="goal">
+  <span class="eyebrow">실습 목표</span>
+  <h2>해시값 A와 B를 비교해 무결성을 판정한다</h2>
+  <p>원본 파일(<code>original.txt</code>)과 복사한 증거 파일(<code>evidence.txt</code>)의 SHA-256 값을 각각 계산합니다.</p>
+  <div class="verdict-diagram">
+    <div class="vd ok"><strong>A == B</strong><span>파일 무결성 유지</span></div>
+    <div class="vd bad"><strong>A != B</strong><span>파일 변경 가능성</span></div>
+  </div>
+  <p class="keypoint">파일 이름이나 크기가 같다고 같은 증거라고 판단하면 안 됩니다. 파일의 <b>실제 데이터</b>로 만든 SHA-256 해시값을 비교해야 무결성을 검증할 수 있습니다.</p>
+</section>
+
+<section id="flow">
+  <span class="eyebrow">프로그램 동작</span>
+  <h2>calculateSHA256 함수의 7단계</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>단계</th><th>사용 API</th><th>역할</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td><code>CreateFileA(GENERIC_READ)</code></td><td>증거 파일을 읽기 전용으로 열기 (원본 훼손 방지)</td></tr>
+        <tr><td class="num">2</td><td><code>BCryptOpenAlgorithmProvider</code></td><td>SHA-256 알고리즘 공급자 열기</td></tr>
+        <tr><td class="num">3</td><td><code>BCryptGetProperty</code></td><td>해시 객체에 필요한 메모리 크기 조회 (<code>BCRYPT_OBJECT_LENGTH</code>)</td></tr>
+        <tr><td class="num">4</td><td><code>HeapAlloc</code></td><td>해시 객체용 메모리 할당</td></tr>
+        <tr><td class="num">5</td><td><code>BCryptCreateHash</code></td><td>해시 객체 생성</td></tr>
+        <tr><td class="num">6</td><td><code>ReadFile</code> + <code>BCryptHashData</code></td><td>파일을 4096바이트씩 읽어 해시에 누적 (대용량 파일도 처리)</td></tr>
+        <tr><td class="num">7</td><td><code>BCryptFinishHash</code></td><td>최종 32바이트 해시값 확정 후 자원을 역순으로 반환</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p><code>main</code>은 두 파일의 해시를 <code>printHash</code>로 64자리 16진수로 출력하고, <code>compareHash</code>로 32바이트를 하나씩 비교해 결과를 판정합니다.</p>
+</section>
+
+<section id="steps">
+  <span class="eyebrow">실습 단계</span>
+  <h2>순서대로 따라 하기</h2>
+  <ol class="steps">
+    <li>
+      <h3>실습 환경 준비</h3>
+      <ul>
+        <li>Visual Studio Build Tools(또는 Community)를 설치하면서 <b>"C++를 사용한 데스크톱 개발"</b> 워크로드를 선택합니다. <code>cl.exe</code>와 Windows SDK(<code>bcrypt.h</code>, <code>bcrypt.lib</code>)가 함께 설치됩니다.</li>
+        <li>VS Code와 확장 프로그램 <b>C/C++ (Microsoft)</b>를 설치합니다.</li>
+        <li>시작 메뉴에서 <b>Developer Command Prompt for VS</b>를 엽니다. VS Code를 쓰려면 이 프롬프트에서 <code>code .</code>로 실행합니다.</li>
+      </ul>
+      <div class="cmd-row"><pre class="cmd"><span class="pr">&gt; </span>cl</pre></div>
+      <p><code>Microsoft (R) C/C++ Optimizing Compiler</code>가 보이면 준비 완료입니다.</p>
+    </li>
+    <li>
+      <h3>작업 폴더와 소스 준비</h3>
+      <pre class="cmd"><span class="pr">&gt; </span>mkdir C:\Forensic
+<span class="pr">&gt; </span>cd C:\Forensic</pre>
+      <p>아래 <a href="#code">주석 코드</a>를 복사해 <code>C:\Forensic\file_integrity.c</code>로 저장합니다. VS Code 상태 표시줄에서 인코딩이 <code>UTF-8</code>인지 확인합니다.</p>
+    </li>
+    <li>
+      <h3>컴파일</h3>
+      <pre class="cmd"><span class="pr">&gt; </span>cl /W4 /utf-8 file_integrity.c bcrypt.lib</pre>
+      <p>코드에 <code>#pragma comment(lib, "bcrypt.lib")</code>가 있으므로 <code>cl /W4 /utf-8 file_integrity.c</code>만으로도 됩니다. <code>/W4</code>는 경고를 최대한 보여 주고, <code>/utf-8</code>은 한글 출력이 깨지지 않게 합니다. 성공하면 <code>file_integrity.exe</code>가 생깁니다.</p>
+    </li>
+    <li>
+      <h3>원본 증거 파일 만들기</h3>
+      <p>메모장으로 <code>C:\Forensic\original.txt</code>를 만들고 다음 세 줄을 저장합니다.</p>
+      <pre class="cmd out">Digital Forensic Evidence
+Windows 11
+2026</pre>
+    </li>
+    <li>
+      <h3>증거 사본 만들기</h3>
+      <pre class="cmd"><span class="pr">&gt; </span>copy C:\Forensic\original.txt C:\Forensic\evidence.txt</pre>
+      <p class="note"><b>주의</b> 내용을 다시 타이핑하거나 "다른 이름으로 저장"하지 마세요. 줄바꿈이나 인코딩이 달라져 해시가 바뀔 수 있습니다. 반드시 파일 복사로 만듭니다.</p>
+    </li>
+    <li>
+      <h3>실험 ① 무결성 유지 확인</h3>
+      <pre class="cmd"><span class="pr">&gt; </span>file_integrity.exe</pre>
+      <pre class="cmd out">원본 파일 경로 입력 : C:\Forensic\original.txt
+비교 파일 경로 입력 : C:\Forensic\evidence.txt
+
+[원본 파일]
+SHA-256 : 8a46f82c...
+[비교 파일]
+SHA-256 : 8a46f82c...
+-----------------------------------------
+[검증 결과]
+<span class="ok">SHA-256 값이 같습니다.
+파일의 무결성이 유지되었습니다.</span></pre>
+      <p><code>8a46f82c...</code>는 교재의 예시값입니다. 실제 값은 줄바꿈 방식과 마지막 줄 엔터 여부에 따라 학생마다 다를 수 있습니다. 중요한 것은 두 값이 <b>서로 같은지</b>입니다.</p>
+    </li>
+    <li>
+      <h3>실험 ② 변조 탐지</h3>
+      <p><code>evidence.txt</code>에 글자 하나만 추가합니다(예: <code>2026</code> → <code>2026.</code>). 그다음 다시 실행합니다.</p>
+      <pre class="cmd out">[원본 파일]
+SHA-256 : 8a46f82c...
+[비교 파일]
+SHA-256 : 5b921ad7...
+-----------------------------------------
+[검증 결과]
+<span class="bad">SHA-256 값이 다릅니다.
+파일 내용이 변경되었을 가능성이 있습니다.</span></pre>
+      <p>1바이트만 바뀌어도 해시 전체가 완전히 달라집니다. 이를 <b>눈사태 효과(Avalanche Effect)</b>라고 합니다.</p>
+    </li>
+    <li>
+      <h3>결과 정리</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>실험</th><th>원본 SHA-256 (앞 8자리)</th><th>증거 SHA-256 (앞 8자리)</th><th>판정</th></tr></thead>
+          <tbody>
+            <tr><td>① 단순 복사</td><td></td><td></td><td>무결성 유지 / 변경 가능성</td></tr>
+            <tr><td>② 1글자 추가</td><td></td><td></td><td>무결성 유지 / 변경 가능성</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section id="try">
+  <span class="eyebrow">해시 체험</span>
+  <h2>브라우저에서 바로 비교해 보기</h2>
+  <p>두 칸의 내용을 바꾸면 SHA-256 값이 즉시 다시 계산됩니다. 서로 다른 16진수 자리는 빨갛게 표시됩니다. 내 컴퓨터의 파일을 골라도 되며, 파일은 브라우저 안에서만 계산되고 어디에도 전송되지 않습니다.</p>
+  <div class="lab">
+    <div class="lab-grid">
+      <div class="pane">
+        <label for="txtA">원본 (original.txt)</label>
+        <textarea id="txtA" spellcheck="false">Digital Forensic Evidence
+Windows 11
+2026</textarea>
+        <div class="file-pick"><input type="file" id="fileA" aria-label="원본 파일 선택"></div>
+        <div class="meta" id="metaA"></div>
+        <div class="digest" id="hashA" aria-live="polite"></div>
+      </div>
+      <div class="pane">
+        <label for="txtB">비교 (evidence.txt)</label>
+        <textarea id="txtB" spellcheck="false">Digital Forensic Evidence
+Windows 11
+2026.</textarea>
+        <div class="file-pick"><input type="file" id="fileB" aria-label="비교 파일 선택"></div>
+        <div class="meta" id="metaB"></div>
+        <div class="digest" id="hashB" aria-live="polite"></div>
+      </div>
+    </div>
+    <div class="lab-foot">
+      <label class="opt"><input type="checkbox" id="crlf" checked> Windows 줄바꿈(CRLF)으로 계산</label>
+      <div class="lab-actions">
+        <button type="button" id="same">원본과 같게 맞추기</button>
+        <button type="button" id="size">크기 같게 변조 (2026→2025)</button>
+      </div>
+      <span class="pill" id="verdict"></span>
+    </div>
+  </div>
+  <p class="meta">텍스트는 UTF-8로 계산합니다. 메모장 파일과 결과를 맞추려면 CRLF를 켜 두고, 파일 끝에 빈 줄이 있는지도 맞추세요.</p>
+</section>
+
+<section id="advanced">
+  <span class="eyebrow">심화 실험</span>
+  <h2>교재의 결론을 직접 증명하기</h2>
+  <p>교재의 실습은 실험 ②까지입니다. 아래 실험으로 "이름·크기가 아니라 데이터로 판단한다"는 결론을 직접 확인합니다.</p>
+  <details open>
+    <summary>실험 ③ 크기는 같은데 내용이 다른 경우</summary>
+    <div>
+      <pre class="cmd"><span class="pr">&gt; </span>copy /Y C:\Forensic\original.txt C:\Forensic\evidence.txt
+<span class="pr">&gt; </span>dir C:\Forensic\*.txt</pre>
+      <p><code>evidence.txt</code>의 <code>2026</code>을 <code>2025</code>로 바꾸면 <code>dir</code>로 본 크기는 그대로지만 해시값은 다릅니다. 크기만으로는 동일성을 판단할 수 없습니다.</p>
+    </div>
+  </details>
+  <details>
+    <summary>실험 ④ 이름은 다른데 내용이 같은 경우</summary>
+    <div>
+      <pre class="cmd"><span class="pr">&gt; </span>copy C:\Forensic\original.txt C:\Forensic\renamed_copy.txt</pre>
+      <p>이름이 달라도 해시값은 같습니다. 파일 이름과 생성·수정 시각은 파일 시스템(NTFS)에 따로 저장되므로 내용 해시에 영향을 주지 않습니다.</p>
+    </div>
+  </details>
+  <details>
+    <summary>실험 ⑤ Windows 기본 도구로 교차 검증</summary>
+    <div>
+      <p>포렌식에서는 결과를 서로 다른 도구로 교차 검증합니다. 프로그램 출력과 아래 결과가 같은지 확인합니다.</p>
+      <pre class="cmd"><span class="pr">cmd&gt; </span>certutil -hashfile C:\Forensic\original.txt SHA256
+<span class="pr">PS&gt;  </span>Get-FileHash C:\Forensic\original.txt -Algorithm SHA256</pre>
+      <p><code>Get-FileHash</code>는 대문자로 출력하지만 16진수는 대소문자를 구분하지 않으므로 같은 값입니다.</p>
+    </div>
+  </details>
+</section>
+
+<section id="code">
+  <span class="eyebrow">주석 코드</span>
+  <div class="code-head">
+    <h2>file_integrity.c</h2>
+    <button type="button" id="copyCode">코드 복사</button>
+  </div>
+  <p>교재 코드와 실행 로직이 완전히 같고, 모든 줄에 한국어 주석을 붙였습니다.</p>
+  <div class="code-box"><div class="code-scroll"><pre class="code" id="codeView"><span class="l"><span class="cm">/*</span></span><span class="l"><span class="cm"> * =====================================================================</span></span><span class="l"><span class="cm"> *  file_integrity.c  —  [디지털 포렌식] Windows 기반 파일 무결성 검증</span></span><span class="l"><span class="cm"> * =====================================================================</span></span><span class="l"><span class="cm"> *  원본 파일과 증거(복사) 파일의 SHA-256 해시값을 각각 계산하여 비교한다.</span></span><span class="l"><span class="cm"> *    - 두 해시값이 같으면  → 파일 무결성 유지</span></span><span class="l"><span class="cm"> *    - 두 해시값이 다르면  → 파일 내용이 변경되었을 가능성</span></span><span class="l"><span class="cm"> *</span></span><span class="l"><span class="cm"> *  사용 API : Windows CNG(Cryptography API: Next Generation)의 BCrypt 함수</span></span><span class="l"><span class="cm"> *  컴파일   : cl /W4 /utf-8 file_integrity.c            (Developer Command Prompt)</span></span><span class="l"><span class="cm"> *  주의     : 이 파일은 UTF-8로 저장되어 있으므로 /utf-8 옵션을 반드시 붙인다.</span></span><span class="l"><span class="cm"> *</span></span><span class="l"><span class="cm"> *  ※ 원본 코드(원본자료/Windows_SHA256_File_Integrity_Check.c)와 실행 로직은</span></span><span class="l"><span class="cm"> *    완전히 동일하며, 학습용으로 라인별 주석만 추가하였다.</span></span><span class="l"><span class="cm"> * =====================================================================</span></span><span class="l"><span class="cm"> */</span></span><span class="l"> </span><span class="l"><span class="pp">#define WIN32_LEAN_AND_MEAN        </span><span class="cm">// windows.h에서 잘 쓰지 않는 헤더(소켓, OLE 등)를 제외해 컴파일 속도를 높인다</span></span><span class="l"> </span><span class="l"><span class="pp">#include &lt;windows.h&gt;               </span><span class="cm">// CreateFileA, ReadFile, CloseHandle, HeapAlloc 등 Windows 기본 API 선언</span></span><span class="l"><span class="pp">#include &lt;bcrypt.h&gt;                </span><span class="cm">// BCryptOpenAlgorithmProvider 등 CNG 암호화(해시) API 선언</span></span><span class="l"><span class="pp">#include &lt;stdio.h&gt;                 </span><span class="cm">// printf, scanf_s 등 표준 입출력 함수 선언</span></span><span class="l"> </span><span class="l"><span class="pp">#pragma comment(lib, "bcrypt.lib") </span><span class="cm">// 링커에게 bcrypt.lib를 자동으로 링크하라고 지시 (명령줄에 lib 생략 가능)</span></span><span class="l"> </span><span class="l"><span class="pp">#define BUFFER_SIZE 4096           </span><span class="cm">// 파일을 한 번에 읽어 들일 크기: 4096바이트(4KB, 일반적인 디스크 페이지 크기)</span></span><span class="l"> </span><span class="l"><span class="cm">/*</span></span><span class="l"><span class="cm"> * 파일의 SHA-256 해시값을 계산하는 함수</span></span><span class="l"><span class="cm"> *</span></span><span class="l"><span class="cm"> * fileName  : 검사할 파일 이름</span></span><span class="l"><span class="cm"> * hashValue : 계산된 SHA-256 값을 저장할 배열</span></span><span class="l"><span class="cm"> *</span></span><span class="l"><span class="cm"> * 성공하면 1, 실패하면 0 반환</span></span><span class="l"><span class="cm"> */</span></span><span class="l">int calculateSHA256(const char *fileName, unsigned char hashValue[32]) <span class="cm">// SHA-256 결과는 256비트 = 32바이트</span></span><span class="l">{                                                   <span class="cm">// 함수 본문 시작</span></span><span class="l">    HANDLE hFile = INVALID_HANDLE_VALUE;            <span class="cm">// 열린 파일을 가리킬 핸들 (초기값: '유효하지 않음')</span></span><span class="l">    BCRYPT_ALG_HANDLE hAlgorithm = NULL;            <span class="cm">// SHA-256 알고리즘 공급자 핸들</span></span><span class="l">    BCRYPT_HASH_HANDLE hHash = NULL;                <span class="cm">// 실제 해시 계산을 수행할 해시 객체 핸들</span></span><span class="l">    NTSTATUS status;                                <span class="cm">// BCrypt 함수의 반환 상태값 (0 = STATUS_SUCCESS = 성공)</span></span><span class="l">    DWORD hashObjectSize = 0;                       <span class="cm">// 해시 객체가 내부적으로 필요로 하는 메모리 크기(바이트)</span></span><span class="l">    DWORD dataSize = 0;                             <span class="cm">// BCryptGetProperty가 실제로 기록한 바이트 수</span></span><span class="l">    unsigned char *hashObject = NULL;               <span class="cm">// 해시 객체용으로 동적 할당할 메모리의 시작 주소</span></span><span class="l">    BYTE buffer[BUFFER_SIZE];                       <span class="cm">// 파일에서 읽은 데이터를 잠시 담아 둘 4KB 버퍼</span></span><span class="l">    DWORD readBytes;                                <span class="cm">// ReadFile이 실제로 읽은 바이트 수</span></span><span class="l"> </span><span class="l"><span class="cm">    /*</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     * 1. 검사할 파일 열기</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     * GENERIC_READ를 사용하므로 파일을 읽기 전용으로 접근한다.</span></span><span class="l"><span class="cm">     */</span></span><span class="l">    hFile = CreateFileA(fileName,                   <span class="cm">// 열 파일 경로 (A = ANSI 문자열 버전)</span></span><span class="l">                        GENERIC_READ,               <span class="cm">// 읽기 권한만 요청 → 증거 파일을 실수로 수정하지 않음(포렌식 원칙)</span></span><span class="l">                        FILE_SHARE_READ,            <span class="cm">// 다른 프로세스의 '읽기'는 허용, 쓰기/삭제는 차단</span></span><span class="l">                        NULL,                       <span class="cm">// 보안 속성: 기본값 사용</span></span><span class="l">                        OPEN_EXISTING,              <span class="cm">// 파일이 이미 존재할 때만 열기 (없으면 새로 만들지 않고 실패)</span></span><span class="l">                        FILE_ATTRIBUTE_NORMAL,      <span class="cm">// 특별한 속성 없이 일반 파일로 처리</span></span><span class="l">                        NULL);                      <span class="cm">// 템플릿 파일: 사용하지 않음</span></span><span class="l"> </span><span class="l">    if (hFile == INVALID_HANDLE_VALUE)              <span class="cm">// 파일 열기에 실패했는지 검사</span></span><span class="l">    {                                               <span class="cm">// 실패 처리 블록 시작</span></span><span class="l">        printf(<span class="st">"파일 열기 실패 : %s\n"</span>, fileName);  <span class="cm">// 어떤 파일이 열리지 않았는지 출력</span></span><span class="l">        printf(<span class="st">"Error Code : %lu\n"</span>, GetLastError()); <span class="cm">// 원인 코드 출력 (2 = 파일 없음, 3 = 경로 없음, 5 = 접근 거부, 32 = 다른 프로세스가 사용 중)</span></span><span class="l">        return 0;                                   <span class="cm">// 실패(0) 반환</span></span><span class="l">    }                                               <span class="cm">// 실패 처리 블록 끝</span></span><span class="l"> </span><span class="l"><span class="cm">    /*</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     * 2. SHA-256 알고리즘 공급자 열기</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     */</span></span><span class="l">    status = BCryptOpenAlgorithmProvider(&amp;hAlgorithm,             <span class="cm">// [출력] 알고리즘 핸들을 받을 변수</span></span><span class="l">                                         BCRYPT_SHA256_ALGORITHM, <span class="cm">// 사용할 알고리즘: L"SHA256"</span></span><span class="l">                                         NULL,                    <span class="cm">// 공급자: NULL이면 Windows 기본 공급자</span></span><span class="l">                                         0);                      <span class="cm">// 플래그: 없음 (HMAC 등을 쓸 때만 지정)</span></span><span class="l"> </span><span class="l">    if (status != 0)                                <span class="cm">// 0(STATUS_SUCCESS)이 아니면 실패</span></span><span class="l">    {                                               <span class="cm">// 실패 처리 블록 시작</span></span><span class="l">        printf(<span class="st">"BCryptOpenAlgorithmProvider 실패\n"</span>); <span class="cm">// 오류 메시지 출력</span></span><span class="l">        CloseHandle(hFile);                         <span class="cm">// 앞 단계에서 연 파일 핸들 반환</span></span><span class="l">        return 0;                                   <span class="cm">// 실패(0) 반환</span></span><span class="l">    }                                               <span class="cm">// 실패 처리 블록 끝</span></span><span class="l"> </span><span class="l"><span class="cm">    /*</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     * 3. SHA-256 해시 객체 크기 확인</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     */</span></span><span class="l">    status = BCryptGetProperty(hAlgorithm,              <span class="cm">// 조회할 알고리즘 핸들</span></span><span class="l">                               BCRYPT_OBJECT_LENGTH,    <span class="cm">// 조회 항목: 해시 객체에 필요한 메모리 크기</span></span><span class="l">                               (PUCHAR)&amp;hashObjectSize, <span class="cm">// [출력] 결과를 저장할 변수 주소 (바이트 포인터로 형변환)</span></span><span class="l">                               sizeof(DWORD),           <span class="cm">// 출력 버퍼 크기 (DWORD = 4바이트)</span></span><span class="l">                               &amp;dataSize,               <span class="cm">// [출력] 실제로 기록된 바이트 수</span></span><span class="l">                               0);                      <span class="cm">// 플래그: 없음</span></span><span class="l"> </span><span class="l">    if (status != 0)                                <span class="cm">// 속성 조회 실패 여부 검사</span></span><span class="l">    {                                               <span class="cm">// 실패 처리 블록 시작</span></span><span class="l">        printf(<span class="st">"BCryptGetProperty 실패\n"</span>);         <span class="cm">// 오류 메시지 출력</span></span><span class="l">        BCryptCloseAlgorithmProvider(hAlgorithm, 0); <span class="cm">// 2단계에서 연 알고리즘 공급자 반환</span></span><span class="l">        CloseHandle(hFile);                         <span class="cm">// 1단계에서 연 파일 핸들 반환</span></span><span class="l">        return 0;                                   <span class="cm">// 실패(0) 반환</span></span><span class="l">    }                                               <span class="cm">// 실패 처리 블록 끝</span></span><span class="l"> </span><span class="l"><span class="cm">    /*</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     * 4. 해시 객체를 저장할 메모리 할당</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     */</span></span><span class="l">    hashObject = (unsigned char *)HeapAlloc(GetProcessHeap(), <span class="cm">// 현재 프로세스의 기본 힙에서</span></span><span class="l">                                            0,                <span class="cm">// 플래그 없음 (0으로 초기화하지 않음)</span></span><span class="l">                                            hashObjectSize);  <span class="cm">// 3단계에서 알아낸 크기만큼 메모리 할당</span></span><span class="l"> </span><span class="l">    if (hashObject == NULL)                         <span class="cm">// 메모리 할당 실패 여부 검사</span></span><span class="l">    {                                               <span class="cm">// 실패 처리 블록 시작</span></span><span class="l">        printf(<span class="st">"메모리 할당 실패\n"</span>);               <span class="cm">// 오류 메시지 출력</span></span><span class="l">        BCryptCloseAlgorithmProvider(hAlgorithm, 0); <span class="cm">// 알고리즘 공급자 반환</span></span><span class="l">        CloseHandle(hFile);                         <span class="cm">// 파일 핸들 반환</span></span><span class="l">        return 0;                                   <span class="cm">// 실패(0) 반환</span></span><span class="l">    }                                               <span class="cm">// 실패 처리 블록 끝</span></span><span class="l"> </span><span class="l"><span class="cm">    /*</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     * 5. SHA-256 Hash 객체 생성</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     */</span></span><span class="l">    status = BCryptCreateHash(hAlgorithm,           <span class="cm">// 사용할 알고리즘(SHA-256) 핸들</span></span><span class="l">                              &amp;hHash,               <span class="cm">// [출력] 생성된 해시 객체 핸들</span></span><span class="l">                              hashObject,           <span class="cm">// 해시 객체가 내부 상태를 저장할 메모리(4단계에서 할당)</span></span><span class="l">                              hashObjectSize,       <span class="cm">// 위 메모리의 크기</span></span><span class="l">                              NULL,                 <span class="cm">// 비밀 키: NULL (HMAC이 아닌 일반 해시이므로 키 없음)</span></span><span class="l">                              0,                    <span class="cm">// 비밀 키 길이: 0</span></span><span class="l">                              0);                   <span class="cm">// 플래그: 없음</span></span><span class="l"> </span><span class="l">    if (status != 0)                                <span class="cm">// 해시 객체 생성 실패 여부 검사</span></span><span class="l">    {                                               <span class="cm">// 실패 처리 블록 시작</span></span><span class="l">        printf(<span class="st">"BCryptCreateHash 실패\n"</span>);          <span class="cm">// 오류 메시지 출력</span></span><span class="l">        HeapFree(GetProcessHeap(), 0, hashObject);  <span class="cm">// 4단계에서 할당한 메모리 해제</span></span><span class="l">        BCryptCloseAlgorithmProvider(hAlgorithm, 0); <span class="cm">// 알고리즘 공급자 반환</span></span><span class="l">        CloseHandle(hFile);                         <span class="cm">// 파일 핸들 반환</span></span><span class="l">        return 0;                                   <span class="cm">// 실패(0) 반환</span></span><span class="l">    }                                               <span class="cm">// 실패 처리 블록 끝</span></span><span class="l"> </span><span class="l"><span class="cm">    /*</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     * 6. 파일 내용을 일정 크기로 반복해서 읽는다.</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     * 전체 파일을 한 번에 메모리에 올리지 않고 4096 Byte 단위로 읽는다.</span></span><span class="l"><span class="cm">     * → 수 GB 크기의 디스크 이미지도 4KB 메모리만으로 해시를 계산할 수 있다.</span></span><span class="l"><span class="cm">     */</span></span><span class="l">    while (1)                                       <span class="cm">// 파일 끝(EOF)에 도달할 때까지 무한 반복</span></span><span class="l">    {                                               <span class="cm">// 반복문 시작</span></span><span class="l">        if (!ReadFile(hFile, buffer, BUFFER_SIZE, &amp;readBytes, NULL)) <span class="cm">// 최대 4096바이트를 buffer로 읽기, 실패 시 FALSE</span></span><span class="l">        {                                           <span class="cm">// 읽기 실패 처리 블록 시작</span></span><span class="l">            printf(<span class="st">"파일 읽기 실패\n"</span>);             <span class="cm">// 오류 메시지 출력</span></span><span class="l">            BCryptDestroyHash(hHash);               <span class="cm">// 5단계에서 만든 해시 객체 파괴</span></span><span class="l">            HeapFree(GetProcessHeap(), 0, hashObject); <span class="cm">// 해시 객체 메모리 해제</span></span><span class="l">            BCryptCloseAlgorithmProvider(hAlgorithm, 0); <span class="cm">// 알고리즘 공급자 반환</span></span><span class="l">            CloseHandle(hFile);                     <span class="cm">// 파일 핸들 반환</span></span><span class="l">            return 0;                               <span class="cm">// 실패(0) 반환</span></span><span class="l">        }                                           <span class="cm">// 읽기 실패 처리 블록 끝</span></span><span class="l"> </span><span class="l"><span class="cm">        /* 파일 끝에 도달 */</span></span><span class="l">        if (readBytes == 0)                         <span class="cm">// ReadFile이 성공했는데 0바이트를 읽었다면 = 파일 끝(EOF)</span></span><span class="l">        {                                           <span class="cm">// EOF 처리 블록 시작</span></span><span class="l">            break;                                  <span class="cm">// 반복문 탈출 → 7단계로 이동</span></span><span class="l">        }                                           <span class="cm">// EOF 처리 블록 끝</span></span><span class="l"> </span><span class="l"><span class="cm">        /* 읽은 데이터를 SHA-256 계산에 추가 */</span></span><span class="l">        status = BCryptHashData(hHash, buffer, readBytes, 0); <span class="cm">// 방금 읽은 readBytes만큼(마지막 조각은 4096보다 작을 수 있음) 해시에 누적</span></span><span class="l"> </span><span class="l">        if (status != 0)                            <span class="cm">// 해시 누적 실패 여부 검사</span></span><span class="l">        {                                           <span class="cm">// 실패 처리 블록 시작</span></span><span class="l">            printf(<span class="st">"BCryptHashData 실패\n"</span>);        <span class="cm">// 오류 메시지 출력</span></span><span class="l">            BCryptDestroyHash(hHash);               <span class="cm">// 해시 객체 파괴</span></span><span class="l">            HeapFree(GetProcessHeap(), 0, hashObject); <span class="cm">// 해시 객체 메모리 해제</span></span><span class="l">            BCryptCloseAlgorithmProvider(hAlgorithm, 0); <span class="cm">// 알고리즘 공급자 반환</span></span><span class="l">            CloseHandle(hFile);                     <span class="cm">// 파일 핸들 반환</span></span><span class="l">            return 0;                               <span class="cm">// 실패(0) 반환</span></span><span class="l">        }                                           <span class="cm">// 실패 처리 블록 끝</span></span><span class="l">    }                                               <span class="cm">// 반복문 끝</span></span><span class="l"> </span><span class="l"><span class="cm">    /*</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     * 7. 최종 SHA-256 해시값 생성</span></span><span class="l"><span class="cm">     * -------------------------------------------------</span></span><span class="l"><span class="cm">     * SHA-256 결과는 32 Byte이다.</span></span><span class="l"><span class="cm">     */</span></span><span class="l">    status = BCryptFinishHash(hHash, hashValue, 32, 0); <span class="cm">// 누적된 데이터로 최종 해시를 확정하여 hashValue(32바이트)에 저장</span></span><span class="l"> </span><span class="l">    if (status != 0)                                <span class="cm">// 최종 해시 생성 실패 여부 검사</span></span><span class="l">    {                                               <span class="cm">// 실패 처리 블록 시작</span></span><span class="l">        printf(<span class="st">"BCryptFinishHash 실패\n"</span>);          <span class="cm">// 오류 메시지 출력</span></span><span class="l">        BCryptDestroyHash(hHash);                   <span class="cm">// 해시 객체 파괴</span></span><span class="l">        HeapFree(GetProcessHeap(), 0, hashObject);  <span class="cm">// 해시 객체 메모리 해제</span></span><span class="l">        BCryptCloseAlgorithmProvider(hAlgorithm, 0); <span class="cm">// 알고리즘 공급자 반환</span></span><span class="l">        CloseHandle(hFile);                         <span class="cm">// 파일 핸들 반환</span></span><span class="l">        return 0;                                   <span class="cm">// 실패(0) 반환</span></span><span class="l">    }                                               <span class="cm">// 실패 처리 블록 끝</span></span><span class="l"> </span><span class="l"><span class="cm">    /* 사용한 자원 반환 (획득한 순서의 역순으로 정리) */</span></span><span class="l">    BCryptDestroyHash(hHash);                       <span class="cm">// 5단계: 해시 객체 파괴</span></span><span class="l">    HeapFree(GetProcessHeap(), 0, hashObject);      <span class="cm">// 4단계: 해시 객체 메모리 해제</span></span><span class="l">    BCryptCloseAlgorithmProvider(hAlgorithm, 0);    <span class="cm">// 2단계: 알고리즘 공급자 반환</span></span><span class="l">    CloseHandle(hFile);                             <span class="cm">// 1단계: 파일 핸들 반환</span></span><span class="l"> </span><span class="l">    return 1;                                       <span class="cm">// 성공(1) 반환 — 결과는 hashValue 배열에 들어 있음</span></span><span class="l">}                                                   <span class="cm">// calculateSHA256 함수 끝</span></span><span class="l"> </span><span class="l"><span class="cm">/* SHA-256 해시값 출력 */</span></span><span class="l">void printHash(const unsigned char hash[32])        <span class="cm">// 32바이트 해시값을 16진수 문자열로 출력하는 함수</span></span><span class="l">{                                                   <span class="cm">// 함수 본문 시작</span></span><span class="l">    int i;                                          <span class="cm">// 반복문 인덱스</span></span><span class="l"> </span><span class="l">    for (i = 0; i &lt; 32; i++)                        <span class="cm">// 32바이트를 처음부터 끝까지 순회</span></span><span class="l">    {                                               <span class="cm">// 반복문 시작</span></span><span class="l">        printf(<span class="st">"%02x"</span>, hash[i]);                    <span class="cm">// 1바이트를 2자리 소문자 16진수로 출력 (예: 0x0a → "0a")</span></span><span class="l">    }                                               <span class="cm">// 반복문 끝 → 총 64글자의 16진수 문자열이 출력됨</span></span><span class="l"> </span><span class="l">    printf(<span class="st">"\n"</span>);                                   <span class="cm">// 줄바꿈</span></span><span class="l">}                                                   <span class="cm">// printHash 함수 끝</span></span><span class="l"> </span><span class="l"><span class="cm">/* 두 SHA-256 해시값 비교 */</span></span><span class="l">int compareHash(const unsigned char hash1[32], const unsigned char hash2[32]) <span class="cm">// 같으면 1, 다르면 0 반환</span></span><span class="l">{                                                   <span class="cm">// 함수 본문 시작</span></span><span class="l">    int i;                                          <span class="cm">// 반복문 인덱스</span></span><span class="l"> </span><span class="l">    for (i = 0; i &lt; 32; i++)                        <span class="cm">// 32바이트를 한 바이트씩 비교</span></span><span class="l">    {                                               <span class="cm">// 반복문 시작</span></span><span class="l">        if (hash1[i] != hash2[i])                   <span class="cm">// 한 바이트라도 다르면</span></span><span class="l">        {                                           <span class="cm">// 불일치 블록 시작</span></span><span class="l">            return 0;                               <span class="cm">// 즉시 '다름(0)' 반환</span></span><span class="l">        }                                           <span class="cm">// 불일치 블록 끝</span></span><span class="l">    }                                               <span class="cm">// 반복문 끝</span></span><span class="l"> </span><span class="l">    return 1;                                       <span class="cm">// 32바이트가 모두 같으면 '같음(1)' 반환</span></span><span class="l">}                                                   <span class="cm">// compareHash 함수 끝</span></span><span class="l"> </span><span class="l"><span class="cm">/*</span></span><span class="l"><span class="cm"> * -------------------------------------------------</span></span><span class="l"><span class="cm"> * main</span></span><span class="l"><span class="cm"> * -------------------------------------------------</span></span><span class="l"><span class="cm"> */</span></span><span class="l">int main(void)                                      <span class="cm">// 프로그램 시작 지점</span></span><span class="l">{                                                   <span class="cm">// main 함수 본문 시작</span></span><span class="l">    char originalFile[MAX_PATH];                    <span class="cm">// 원본 파일 경로를 저장할 배열 (MAX_PATH = 260)</span></span><span class="l">    char evidenceFile[MAX_PATH];                    <span class="cm">// 비교(증거) 파일 경로를 저장할 배열</span></span><span class="l">    unsigned char originalHash[32];                 <span class="cm">// 원본 파일의 SHA-256 결과(32바이트)</span></span><span class="l">    unsigned char evidenceHash[32];                 <span class="cm">// 비교 파일의 SHA-256 결과(32바이트)</span></span><span class="l"> </span><span class="l"><span class="cm">    /* Windows Console UTF-8 출력 */</span></span><span class="l">    SetConsoleOutputCP(CP_UTF8);                    <span class="cm">// 콘솔 출력 코드페이지를 UTF-8(65001)로 바꿔 한글이 깨지지 않게 함</span></span><span class="l"> </span><span class="l">    printf(<span class="st">"=========================================\n"</span>); <span class="cm">// 제목 테두리 출력</span></span><span class="l">    printf(<span class="st">" Digital Forensic File Integrity Check\n"</span>);    <span class="cm">// 프로그램 제목 출력</span></span><span class="l">    printf(<span class="st">" SHA-256 File Hash Verification\n"</span>);           <span class="cm">// 부제목 출력</span></span><span class="l">    printf(<span class="st">"=========================================\n\n"</span>); <span class="cm">// 제목 테두리 + 빈 줄 출력</span></span><span class="l"> </span><span class="l"><span class="cm">    /* 원본 파일 입력 */</span></span><span class="l">    printf(<span class="st">"원본 파일 경로 입력 : "</span>);               <span class="cm">// 원본 파일 경로 입력 안내</span></span><span class="l">    scanf_s(<span class="st">"%259s"</span>, originalFile, (unsigned)sizeof(originalFile)); <span class="cm">// 최대 259글자(+NULL 1 = 260) 입력, 공백 전까지만 읽음</span></span><span class="l"> </span><span class="l"><span class="cm">    /* 증거 또는 복사 파일 입력 */</span></span><span class="l">    printf(<span class="st">"비교 파일 경로 입력 : "</span>);               <span class="cm">// 비교 파일 경로 입력 안내</span></span><span class="l">    scanf_s(<span class="st">"%259s"</span>, evidenceFile, (unsigned)sizeof(evidenceFile)); <span class="cm">// 버퍼 크기를 함께 넘겨 오버플로를 방지하는 안전한 입력</span></span><span class="l">    printf(<span class="st">"\n"</span>);                                   <span class="cm">// 빈 줄 출력</span></span><span class="l"> </span><span class="l"><span class="cm">    /* 원본 파일의 SHA-256 계산 */</span></span><span class="l">    if (!calculateSHA256(originalFile, originalHash)) <span class="cm">// 원본 파일 해시 계산, 실패(0)하면</span></span><span class="l">    {                                               <span class="cm">// 실패 처리 블록 시작</span></span><span class="l">        return 1;                                   <span class="cm">// 오류 종료 코드 1로 프로그램 종료</span></span><span class="l">    }                                               <span class="cm">// 실패 처리 블록 끝</span></span><span class="l"> </span><span class="l"><span class="cm">    /* 비교 파일의 SHA-256 계산 */</span></span><span class="l">    if (!calculateSHA256(evidenceFile, evidenceHash)) <span class="cm">// 비교 파일 해시 계산, 실패(0)하면</span></span><span class="l">    {                                               <span class="cm">// 실패 처리 블록 시작</span></span><span class="l">        return 1;                                   <span class="cm">// 오류 종료 코드 1로 프로그램 종료</span></span><span class="l">    }                                               <span class="cm">// 실패 처리 블록 끝</span></span><span class="l"> </span><span class="l">    printf(<span class="st">"-----------------------------------------\n"</span>); <span class="cm">// 구분선 출력</span></span><span class="l">    printf(<span class="st">"[원본 파일]\n"</span>);                        <span class="cm">// 원본 파일 섹션 제목</span></span><span class="l">    printf(<span class="st">"파일 : %s\n"</span>, originalFile);            <span class="cm">// 원본 파일 경로 출력</span></span><span class="l">    printf(<span class="st">"SHA-256 : "</span>);                           <span class="cm">// 해시 출력 앞 머리말</span></span><span class="l">    printHash(originalHash);                        <span class="cm">// 원본 파일 해시를 64자리 16진수로 출력</span></span><span class="l"> </span><span class="l">    printf(<span class="st">"\n"</span>);                                   <span class="cm">// 빈 줄 출력</span></span><span class="l">    printf(<span class="st">"[비교 파일]\n"</span>);                        <span class="cm">// 비교 파일 섹션 제목</span></span><span class="l">    printf(<span class="st">"파일 : %s\n"</span>, evidenceFile);            <span class="cm">// 비교 파일 경로 출력</span></span><span class="l">    printf(<span class="st">"SHA-256 : "</span>);                           <span class="cm">// 해시 출력 앞 머리말</span></span><span class="l">    printHash(evidenceHash);                        <span class="cm">// 비교 파일 해시를 64자리 16진수로 출력</span></span><span class="l">    printf(<span class="st">"\n-----------------------------------------\n"</span>); <span class="cm">// 빈 줄 + 구분선 출력</span></span><span class="l"> </span><span class="l"><span class="cm">    /* 두 파일의 해시값 비교 */</span></span><span class="l">    if (compareHash(originalHash, evidenceHash))    <span class="cm">// 두 해시가 32바이트 모두 같으면</span></span><span class="l">    {                                               <span class="cm">// 일치 블록 시작</span></span><span class="l">        printf(<span class="st">"[검증 결과]\n"</span>);                    <span class="cm">// 결과 섹션 제목</span></span><span class="l">        printf(<span class="st">"SHA-256 값이 같습니다.\n"</span>);         <span class="cm">// 해시 일치 메시지</span></span><span class="l">        printf(<span class="st">"파일의 무결성이 유지되었습니다.\n"</span>); <span class="cm">// 결론: 무결성 유지</span></span><span class="l">    }                                               <span class="cm">// 일치 블록 끝</span></span><span class="l">    else                                            <span class="cm">// 한 바이트라도 다르면</span></span><span class="l">    {                                               <span class="cm">// 불일치 블록 시작</span></span><span class="l">        printf(<span class="st">"[검증 결과]\n"</span>);                    <span class="cm">// 결과 섹션 제목</span></span><span class="l">        printf(<span class="st">"SHA-256 값이 다릅니다.\n"</span>);         <span class="cm">// 해시 불일치 메시지</span></span><span class="l">        printf(<span class="st">"파일 내용이 변경되었을 가능성이 있습니다.\n"</span>); <span class="cm">// 결론: 변경(위·변조) 가능성</span></span><span class="l">    }                                               <span class="cm">// 불일치 블록 끝</span></span><span class="l"> </span><span class="l">    printf(<span class="st">"-----------------------------------------\n"</span>); <span class="cm">// 마지막 구분선 출력</span></span><span class="l">    return 0;                                       <span class="cm">// 정상 종료 코드 0 반환</span></span><span class="l">}                                                   <span class="cm">// main 함수 끝</span></span></pre></div></div>
+</section>
+
+<section id="trouble">
+  <span class="eyebrow">문제 해결</span>
+  <h2>자주 만나는 오류</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>증상</th><th>원인과 해결</th></tr></thead>
+      <tbody>
+        <tr><td><code>'cl'은(는) 내부 또는 외부 명령...</code></td><td>일반 cmd에서 실행함 → Developer Command Prompt for VS에서 실행</td></tr>
+        <tr><td><code>cannot open include file 'bcrypt.h'</code></td><td>Windows SDK 미설치 → "C++를 사용한 데스크톱 개발" 워크로드 설치</td></tr>
+        <tr><td><code>LNK2019 ... BCrypt...</code></td><td><code>bcrypt.lib</code> 링크 누락 → 컴파일 명령에 <code>bcrypt.lib</code> 추가</td></tr>
+        <tr><td>한글 출력이 깨짐</td><td><code>/utf-8</code> 옵션 누락 또는 소스가 UTF-8이 아님</td></tr>
+        <tr><td><code>Error Code : 2</code></td><td>파일 없음 → 경로·확장자 확인 (<code>original.txt.txt</code> 주의, 탐색기에서 "파일 확장명" 표시)</td></tr>
+        <tr><td><code>Error Code : 3</code></td><td>폴더 경로 없음 → <code>C:\Forensic</code> 존재 여부 확인</td></tr>
+        <tr><td><code>Error Code : 5</code></td><td>접근 거부 → 권한 확인 또는 다른 폴더 사용</td></tr>
+        <tr><td><code>Error Code : 32</code></td><td>다른 프로그램이 파일을 쓰기 모드로 사용 중 → 해당 프로그램 종료 후 재실행</td></tr>
+        <tr><td>공백 있는 경로가 실패</td><td><code>scanf_s("%259s")</code>는 공백 전까지만 읽음 → 공백 없는 경로 사용</td></tr>
+        <tr><td>한글 경로가 깨지거나 안 열림</td><td>경로는 영문으로 구성 권장</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>2026 2학기 디지털 포렌식 · 실습 01 파일 무결성 검증</footer>
+</div>
+
+<script id="codeRaw" type="application/json">"/*\n * =====================================================================\n *  file_integrity.c  —  [디지털 포렌식] Windows 기반 파일 무결성 검증\n * =====================================================================\n *  원본 파일과 증거(복사) 파일의 SHA-256 해시값을 각각 계산하여 비교한다.\n *    - 두 해시값이 같으면  → 파일 무결성 유지\n *    - 두 해시값이 다르면  → 파일 내용이 변경되었을 가능성\n *\n *  사용 API : Windows CNG(Cryptography API: Next Generation)의 BCrypt 함수\n *  컴파일   : cl /W4 /utf-8 file_integrity.c            (Developer Command Prompt)\n *  주의     : 이 파일은 UTF-8로 저장되어 있으므로 /utf-8 옵션을 반드시 붙인다.\n *\n *  ※ 원본 코드(원본자료/Windows_SHA256_File_Integrity_Check.c)와 실행 로직은\n *    완전히 동일하며, 학습용으로 라인별 주석만 추가하였다.\n * =====================================================================\n */\n\n#define WIN32_LEAN_AND_MEAN        // windows.h에서 잘 쓰지 않는 헤더(소켓, OLE 등)를 제외해 컴파일 속도를 높인다\n\n#include <windows.h>               // CreateFileA, ReadFile, CloseHandle, HeapAlloc 등 Windows 기본 API 선언\n#include <bcrypt.h>                // BCryptOpenAlgorithmProvider 등 CNG 암호화(해시) API 선언\n#include <stdio.h>                 // printf, scanf_s 등 표준 입출력 함수 선언\n\n#pragma comment(lib, \"bcrypt.lib\") // 링커에게 bcrypt.lib를 자동으로 링크하라고 지시 (명령줄에 lib 생략 가능)\n\n#define BUFFER_SIZE 4096           // 파일을 한 번에 읽어 들일 크기: 4096바이트(4KB, 일반적인 디스크 페이지 크기)\n\n/*\n * 파일의 SHA-256 해시값을 계산하는 함수\n *\n * fileName  : 검사할 파일 이름\n * hashValue : 계산된 SHA-256 값을 저장할 배열\n *\n * 성공하면 1, 실패하면 0 반환\n */\nint calculateSHA256(const char *fileName, unsigned char hashValue[32]) // SHA-256 결과는 256비트 = 32바이트\n{                                                   // 함수 본문 시작\n    HANDLE hFile = INVALID_HANDLE_VALUE;            // 열린 파일을 가리킬 핸들 (초기값: '유효하지 않음')\n    BCRYPT_ALG_HANDLE hAlgorithm = NULL;            // SHA-256 알고리즘 공급자 핸들\n    BCRYPT_HASH_HANDLE hHash = NULL;                // 실제 해시 계산을 수행할 해시 객체 핸들\n    NTSTATUS status;                                // BCrypt 함수의 반환 상태값 (0 = STATUS_SUCCESS = 성공)\n    DWORD hashObjectSize = 0;                       // 해시 객체가 내부적으로 필요로 하는 메모리 크기(바이트)\n    DWORD dataSize = 0;                             // BCryptGetProperty가 실제로 기록한 바이트 수\n    unsigned char *hashObject = NULL;               // 해시 객체용으로 동적 할당할 메모리의 시작 주소\n    BYTE buffer[BUFFER_SIZE];                       // 파일에서 읽은 데이터를 잠시 담아 둘 4KB 버퍼\n    DWORD readBytes;                                // ReadFile이 실제로 읽은 바이트 수\n\n    /*\n     * -------------------------------------------------\n     * 1. 검사할 파일 열기\n     * -------------------------------------------------\n     * GENERIC_READ를 사용하므로 파일을 읽기 전용으로 접근한다.\n     */\n    hFile = CreateFileA(fileName,                   // 열 파일 경로 (A = ANSI 문자열 버전)\n                        GENERIC_READ,               // 읽기 권한만 요청 → 증거 파일을 실수로 수정하지 않음(포렌식 원칙)\n                        FILE_SHARE_READ,            // 다른 프로세스의 '읽기'는 허용, 쓰기/삭제는 차단\n                        NULL,                       // 보안 속성: 기본값 사용\n                        OPEN_EXISTING,              // 파일이 이미 존재할 때만 열기 (없으면 새로 만들지 않고 실패)\n                        FILE_ATTRIBUTE_NORMAL,      // 특별한 속성 없이 일반 파일로 처리\n                        NULL);                      // 템플릿 파일: 사용하지 않음\n\n    if (hFile == INVALID_HANDLE_VALUE)              // 파일 열기에 실패했는지 검사\n    {                                               // 실패 처리 블록 시작\n        printf(\"파일 열기 실패 : %s\\n\", fileName);  // 어떤 파일이 열리지 않았는지 출력\n        printf(\"Error Code : %lu\\n\", GetLastError()); // 원인 코드 출력 (2 = 파일 없음, 3 = 경로 없음, 5 = 접근 거부, 32 = 다른 프로세스가 사용 중)\n        return 0;                                   // 실패(0) 반환\n    }                                               // 실패 처리 블록 끝\n\n    /*\n     * -------------------------------------------------\n     * 2. SHA-256 알고리즘 공급자 열기\n     * -------------------------------------------------\n     */\n    status = BCryptOpenAlgorithmProvider(&hAlgorithm,             // [출력] 알고리즘 핸들을 받을 변수\n                                         BCRYPT_SHA256_ALGORITHM, // 사용할 알고리즘: L\"SHA256\"\n                                         NULL,                    // 공급자: NULL이면 Windows 기본 공급자\n                                         0);                      // 플래그: 없음 (HMAC 등을 쓸 때만 지정)\n\n    if (status != 0)                                // 0(STATUS_SUCCESS)이 아니면 실패\n    {                                               // 실패 처리 블록 시작\n        printf(\"BCryptOpenAlgorithmProvider 실패\\n\"); // 오류 메시지 출력\n        CloseHandle(hFile);                         // 앞 단계에서 연 파일 핸들 반환\n        return 0;                                   // 실패(0) 반환\n    }                                               // 실패 처리 블록 끝\n\n    /*\n     * -------------------------------------------------\n     * 3. SHA-256 해시 객체 크기 확인\n     * -------------------------------------------------\n     */\n    status = BCryptGetProperty(hAlgorithm,              // 조회할 알고리즘 핸들\n                               BCRYPT_OBJECT_LENGTH,    // 조회 항목: 해시 객체에 필요한 메모리 크기\n                               (PUCHAR)&hashObjectSize, // [출력] 결과를 저장할 변수 주소 (바이트 포인터로 형변환)\n                               sizeof(DWORD),           // 출력 버퍼 크기 (DWORD = 4바이트)\n                               &dataSize,               // [출력] 실제로 기록된 바이트 수\n                               0);                      // 플래그: 없음\n\n    if (status != 0)                                // 속성 조회 실패 여부 검사\n    {                                               // 실패 처리 블록 시작\n        printf(\"BCryptGetProperty 실패\\n\");         // 오류 메시지 출력\n        BCryptCloseAlgorithmProvider(hAlgorithm, 0); // 2단계에서 연 알고리즘 공급자 반환\n        CloseHandle(hFile);                         // 1단계에서 연 파일 핸들 반환\n        return 0;                                   // 실패(0) 반환\n    }                                               // 실패 처리 블록 끝\n\n    /*\n     * -------------------------------------------------\n     * 4. 해시 객체를 저장할 메모리 할당\n     * -------------------------------------------------\n     */\n    hashObject = (unsigned char *)HeapAlloc(GetProcessHeap(), // 현재 프로세스의 기본 힙에서\n                                            0,                // 플래그 없음 (0으로 초기화하지 않음)\n                                            hashObjectSize);  // 3단계에서 알아낸 크기만큼 메모리 할당\n\n    if (hashObject == NULL)                         // 메모리 할당 실패 여부 검사\n    {                                               // 실패 처리 블록 시작\n        printf(\"메모리 할당 실패\\n\");               // 오류 메시지 출력\n        BCryptCloseAlgorithmProvider(hAlgorithm, 0); // 알고리즘 공급자 반환\n        CloseHandle(hFile);                         // 파일 핸들 반환\n        return 0;                                   // 실패(0) 반환\n    }                                               // 실패 처리 블록 끝\n\n    /*\n     * -------------------------------------------------\n     * 5. SHA-256 Hash 객체 생성\n     * -------------------------------------------------\n     */\n    status = BCryptCreateHash(hAlgorithm,           // 사용할 알고리즘(SHA-256) 핸들\n                              &hHash,               // [출력] 생성된 해시 객체 핸들\n                              hashObject,           // 해시 객체가 내부 상태를 저장할 메모리(4단계에서 할당)\n                              hashObjectSize,       // 위 메모리의 크기\n                              NULL,                 // 비밀 키: NULL (HMAC이 아닌 일반 해시이므로 키 없음)\n                              0,                    // 비밀 키 길이: 0\n                              0);                   // 플래그: 없음\n\n    if (status != 0)                                // 해시 객체 생성 실패 여부 검사\n    {                                               // 실패 처리 블록 시작\n        printf(\"BCryptCreateHash 실패\\n\");          // 오류 메시지 출력\n        HeapFree(GetProcessHeap(), 0, hashObject);  // 4단계에서 할당한 메모리 해제\n        BCryptCloseAlgorithmProvider(hAlgorithm, 0); // 알고리즘 공급자 반환\n        CloseHandle(hFile);                         // 파일 핸들 반환\n        return 0;                                   // 실패(0) 반환\n    }                                               // 실패 처리 블록 끝\n\n    /*\n     * -------------------------------------------------\n     * 6. 파일 내용을 일정 크기로 반복해서 읽는다.\n     * -------------------------------------------------\n     * 전체 파일을 한 번에 메모리에 올리지 않고 4096 Byte 단위로 읽는다.\n     * → 수 GB 크기의 디스크 이미지도 4KB 메모리만으로 해시를 계산할 수 있다.\n     */\n    while (1)                                       // 파일 끝(EOF)에 도달할 때까지 무한 반복\n    {                                               // 반복문 시작\n        if (!ReadFile(hFile, buffer, BUFFER_SIZE, &readBytes, NULL)) // 최대 4096바이트를 buffer로 읽기, 실패 시 FALSE\n        {                                           // 읽기 실패 처리 블록 시작\n            printf(\"파일 읽기 실패\\n\");             // 오류 메시지 출력\n            BCryptDestroyHash(hHash);               // 5단계에서 만든 해시 객체 파괴\n            HeapFree(GetProcessHeap(), 0, hashObject); // 해시 객체 메모리 해제\n            BCryptCloseAlgorithmProvider(hAlgorithm, 0); // 알고리즘 공급자 반환\n            CloseHandle(hFile);                     // 파일 핸들 반환\n            return 0;                               // 실패(0) 반환\n        }                                           // 읽기 실패 처리 블록 끝\n\n        /* 파일 끝에 도달 */\n        if (readBytes == 0)                         // ReadFile이 성공했는데 0바이트를 읽었다면 = 파일 끝(EOF)\n        {                                           // EOF 처리 블록 시작\n            break;                                  // 반복문 탈출 → 7단계로 이동\n        }                                           // EOF 처리 블록 끝\n\n        /* 읽은 데이터를 SHA-256 계산에 추가 */\n        status = BCryptHashData(hHash, buffer, readBytes, 0); // 방금 읽은 readBytes만큼(마지막 조각은 4096보다 작을 수 있음) 해시에 누적\n\n        if (status != 0)                            // 해시 누적 실패 여부 검사\n        {                                           // 실패 처리 블록 시작\n            printf(\"BCryptHashData 실패\\n\");        // 오류 메시지 출력\n            BCryptDestroyHash(hHash);               // 해시 객체 파괴\n            HeapFree(GetProcessHeap(), 0, hashObject); // 해시 객체 메모리 해제\n            BCryptCloseAlgorithmProvider(hAlgorithm, 0); // 알고리즘 공급자 반환\n            CloseHandle(hFile);                     // 파일 핸들 반환\n            return 0;                               // 실패(0) 반환\n        }                                           // 실패 처리 블록 끝\n    }                                               // 반복문 끝\n\n    /*\n     * -------------------------------------------------\n     * 7. 최종 SHA-256 해시값 생성\n     * -------------------------------------------------\n     * SHA-256 결과는 32 Byte이다.\n     */\n    status = BCryptFinishHash(hHash, hashValue, 32, 0); // 누적된 데이터로 최종 해시를 확정하여 hashValue(32바이트)에 저장\n\n    if (status != 0)                                // 최종 해시 생성 실패 여부 검사\n    {                                               // 실패 처리 블록 시작\n        printf(\"BCryptFinishHash 실패\\n\");          // 오류 메시지 출력\n        BCryptDestroyHash(hHash);                   // 해시 객체 파괴\n        HeapFree(GetProcessHeap(), 0, hashObject);  // 해시 객체 메모리 해제\n        BCryptCloseAlgorithmProvider(hAlgorithm, 0); // 알고리즘 공급자 반환\n        CloseHandle(hFile);                         // 파일 핸들 반환\n        return 0;                                   // 실패(0) 반환\n    }                                               // 실패 처리 블록 끝\n\n    /* 사용한 자원 반환 (획득한 순서의 역순으로 정리) */\n    BCryptDestroyHash(hHash);                       // 5단계: 해시 객체 파괴\n    HeapFree(GetProcessHeap(), 0, hashObject);      // 4단계: 해시 객체 메모리 해제\n    BCryptCloseAlgorithmProvider(hAlgorithm, 0);    // 2단계: 알고리즘 공급자 반환\n    CloseHandle(hFile);                             // 1단계: 파일 핸들 반환\n\n    return 1;                                       // 성공(1) 반환 — 결과는 hashValue 배열에 들어 있음\n}                                                   // calculateSHA256 함수 끝\n\n/* SHA-256 해시값 출력 */\nvoid printHash(const unsigned char hash[32])        // 32바이트 해시값을 16진수 문자열로 출력하는 함수\n{                                                   // 함수 본문 시작\n    int i;                                          // 반복문 인덱스\n\n    for (i = 0; i < 32; i++)                        // 32바이트를 처음부터 끝까지 순회\n    {                                               // 반복문 시작\n        printf(\"%02x\", hash[i]);                    // 1바이트를 2자리 소문자 16진수로 출력 (예: 0x0a → \"0a\")\n    }                                               // 반복문 끝 → 총 64글자의 16진수 문자열이 출력됨\n\n    printf(\"\\n\");                                   // 줄바꿈\n}                                                   // printHash 함수 끝\n\n/* 두 SHA-256 해시값 비교 */\nint compareHash(const unsigned char hash1[32], const unsigned char hash2[32]) // 같으면 1, 다르면 0 반환\n{                                                   // 함수 본문 시작\n    int i;                                          // 반복문 인덱스\n\n    for (i = 0; i < 32; i++)                        // 32바이트를 한 바이트씩 비교\n    {                                               // 반복문 시작\n        if (hash1[i] != hash2[i])                   // 한 바이트라도 다르면\n        {                                           // 불일치 블록 시작\n            return 0;                               // 즉시 '다름(0)' 반환\n        }                                           // 불일치 블록 끝\n    }                                               // 반복문 끝\n\n    return 1;                                       // 32바이트가 모두 같으면 '같음(1)' 반환\n}                                                   // compareHash 함수 끝\n\n/*\n * -------------------------------------------------\n * main\n * -------------------------------------------------\n */\nint main(void)                                      // 프로그램 시작 지점\n{                                                   // main 함수 본문 시작\n    char originalFile[MAX_PATH];                    // 원본 파일 경로를 저장할 배열 (MAX_PATH = 260)\n    char evidenceFile[MAX_PATH];                    // 비교(증거) 파일 경로를 저장할 배열\n    unsigned char originalHash[32];                 // 원본 파일의 SHA-256 결과(32바이트)\n    unsigned char evidenceHash[32];                 // 비교 파일의 SHA-256 결과(32바이트)\n\n    /* Windows Console UTF-8 출력 */\n    SetConsoleOutputCP(CP_UTF8);                    // 콘솔 출력 코드페이지를 UTF-8(65001)로 바꿔 한글이 깨지지 않게 함\n\n    printf(\"=========================================\\n\"); // 제목 테두리 출력\n    printf(\" Digital Forensic File Integrity Check\\n\");    // 프로그램 제목 출력\n    printf(\" SHA-256 File Hash Verification\\n\");           // 부제목 출력\n    printf(\"=========================================\\n\\n\"); // 제목 테두리 + 빈 줄 출력\n\n    /* 원본 파일 입력 */\n    printf(\"원본 파일 경로 입력 : \");               // 원본 파일 경로 입력 안내\n    scanf_s(\"%259s\", originalFile, (unsigned)sizeof(originalFile)); // 최대 259글자(+NULL 1 = 260) 입력, 공백 전까지만 읽음\n\n    /* 증거 또는 복사 파일 입력 */\n    printf(\"비교 파일 경로 입력 : \");               // 비교 파일 경로 입력 안내\n    scanf_s(\"%259s\", evidenceFile, (unsigned)sizeof(evidenceFile)); // 버퍼 크기를 함께 넘겨 오버플로를 방지하는 안전한 입력\n    printf(\"\\n\");                                   // 빈 줄 출력\n\n    /* 원본 파일의 SHA-256 계산 */\n    if (!calculateSHA256(originalFile, originalHash)) // 원본 파일 해시 계산, 실패(0)하면\n    {                                               // 실패 처리 블록 시작\n        return 1;                                   // 오류 종료 코드 1로 프로그램 종료\n    }                                               // 실패 처리 블록 끝\n\n    /* 비교 파일의 SHA-256 계산 */\n    if (!calculateSHA256(evidenceFile, evidenceHash)) // 비교 파일 해시 계산, 실패(0)하면\n    {                                               // 실패 처리 블록 시작\n        return 1;                                   // 오류 종료 코드 1로 프로그램 종료\n    }                                               // 실패 처리 블록 끝\n\n    printf(\"-----------------------------------------\\n\"); // 구분선 출력\n    printf(\"[원본 파일]\\n\");                        // 원본 파일 섹션 제목\n    printf(\"파일 : %s\\n\", originalFile);            // 원본 파일 경로 출력\n    printf(\"SHA-256 : \");                           // 해시 출력 앞 머리말\n    printHash(originalHash);                        // 원본 파일 해시를 64자리 16진수로 출력\n\n    printf(\"\\n\");                                   // 빈 줄 출력\n    printf(\"[비교 파일]\\n\");                        // 비교 파일 섹션 제목\n    printf(\"파일 : %s\\n\", evidenceFile);            // 비교 파일 경로 출력\n    printf(\"SHA-256 : \");                           // 해시 출력 앞 머리말\n    printHash(evidenceHash);                        // 비교 파일 해시를 64자리 16진수로 출력\n    printf(\"\\n-----------------------------------------\\n\"); // 빈 줄 + 구분선 출력\n\n    /* 두 파일의 해시값 비교 */\n    if (compareHash(originalHash, evidenceHash))    // 두 해시가 32바이트 모두 같으면\n    {                                               // 일치 블록 시작\n        printf(\"[검증 결과]\\n\");                    // 결과 섹션 제목\n        printf(\"SHA-256 값이 같습니다.\\n\");         // 해시 일치 메시지\n        printf(\"파일의 무결성이 유지되었습니다.\\n\"); // 결론: 무결성 유지\n    }                                               // 일치 블록 끝\n    else                                            // 한 바이트라도 다르면\n    {                                               // 불일치 블록 시작\n        printf(\"[검증 결과]\\n\");                    // 결과 섹션 제목\n        printf(\"SHA-256 값이 다릅니다.\\n\");         // 해시 불일치 메시지\n        printf(\"파일 내용이 변경되었을 가능성이 있습니다.\\n\"); // 결론: 변경(위·변조) 가능성\n    }                                               // 불일치 블록 끝\n\n    printf(\"-----------------------------------------\\n\"); // 마지막 구분선 출력\n    return 0;                                       // 정상 종료 코드 0 반환\n}                                                   // main 함수 끝\n"</script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var enc = new TextEncoder();
+  var state = { A: { file: null }, B: { file: null } };
+
+  function hex(buf) {
+    return Array.prototype.map.call(new Uint8Array(buf), function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+  }
+  function textBytes(t) {
+    t = t.replace(/\r\n/g, "\n");
+    if ($("crlf").checked) t = t.replace(/\n/g, "\r\n");
+    return enc.encode(t);
+  }
+  async function digestOf(side) {
+    var bytes = state[side].file ? new Uint8Array(await state[side].file.arrayBuffer()) : textBytes($("txt" + side).value);
+    var h = await crypto.subtle.digest("SHA-256", bytes);
+    return { hex: hex(h), size: bytes.length };
+  }
+  function render(el, h, other) {
+    var out = "";
+    for (var i = 0; i < h.length; i++) {
+      out += (other && other[i] !== h[i]) ? '<span class="d">' + h[i] + "</span>" : h[i];
+    }
+    el.innerHTML = out;
+  }
+  var seq = 0;
+  async function update() {
+    var my = ++seq;
+    if (!(window.crypto && crypto.subtle)) {
+      $("hashA").textContent = $("hashB").textContent = "이 브라우저에서는 SHA-256 계산을 지원하지 않습니다.";
+      return;
+    }
+    var a = await digestOf("A"), b = await digestOf("B");
+    if (my !== seq) return;
+    render($("hashA"), a.hex, b.hex);
+    render($("hashB"), b.hex, a.hex);
+    $("metaA").textContent = (state.A.file ? state.A.file.name + " · " : "") + a.size + " bytes";
+    $("metaB").textContent = (state.B.file ? state.B.file.name + " · " : "") + b.size + " bytes";
+    var same = a.hex === b.hex, v = $("verdict");
+    v.className = "pill " + (same ? "ok" : "bad");
+    v.textContent = same ? "A == B · 무결성 유지" : "A != B · 변경 가능성";
+  }
+  ["A", "B"].forEach(function (s) {
+    $("txt" + s).addEventListener("input", function () { state[s].file = null; $("file" + s).value = ""; update(); });
+    $("file" + s).addEventListener("change", function (e) {
+      var f = e.target.files && e.target.files[0];
+      state[s].file = f || null;
+      if (f) { $("txt" + s).value = "(파일 선택됨: " + f.name + ")\n텍스트를 입력하면 파일 대신 텍스트로 계산합니다."; }
+      update();
+    });
+  });
+  $("crlf").addEventListener("change", update);
+  $("same").addEventListener("click", function () {
+    state.B.file = null; $("fileB").value = "";
+    if (state.A.file) { state.B.file = state.A.file; $("txtB").value = $("txtA").value; }
+    else { $("txtB").value = $("txtA").value; }
+    update();
+  });
+  $("size").addEventListener("click", function () {
+    state.A.file = state.B.file = null; $("fileA").value = $("fileB").value = "";
+    $("txtA").value = "Digital Forensic Evidence\nWindows 11\n2026";
+    $("txtB").value = "Digital Forensic Evidence\nWindows 11\n2025";
+    update();
+  });
+
+  var raw = JSON.parse($("codeRaw").textContent);
+  $("copyCode").addEventListener("click", function () {
+    var btn = this;
+    function done(msg) { btn.textContent = msg; setTimeout(function () { btn.textContent = "코드 복사"; }, 1800); }
+    function fallback() {
+      var r = document.createRange(); r.selectNodeContents($("codeView"));
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      done("선택됨 · Ctrl+C로 복사");
+    }
+    try {
+      navigator.clipboard.writeText(raw).then(function () { done("복사됨"); }, fallback);
+    } catch (e) { fallback(); }
+  });
+
+  update();
+})();
+</script>
+</body></html>
