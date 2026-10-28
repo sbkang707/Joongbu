@@ -296,6 +296,8 @@ footer { color: var(--muted); font-size: 0.88rem; border-top: 1px solid var(--li
     </li>
     <li>
       <h3>컴파일</h3>
+      <p class="note"><b>가장 쉬운 방법</b> <code>file_integrity.c</code>와 같은 폴더에 <code>build.bat</code>을 두고 더블클릭하거나, VS Code 터미널에서 <code>.\build.bat</code>을 입력합니다. 컴파일러 환경 설정, 컴파일, 실행을 한 번에 처리하므로 개발자 프롬프트가 필요 없습니다. <code>build.bat</code>은 저장소의 실습 폴더에 있습니다.</p>
+      <p>직접 명령어로 컴파일하려면 다음과 같이 합니다.</p>
       <pre class="cmd"><span class="pr">&gt; </span>cl /W4 /utf-8 file_integrity.c bcrypt.lib</pre>
       <p>코드에 <code>#pragma comment(lib, "bcrypt.lib")</code>가 있으므로 <code>cl /W4 /utf-8 file_integrity.c</code>만으로도 됩니다. <code>/W4</code>는 경고를 최대한 보여 주고, <code>/utf-8</code>은 한글 출력이 깨지지 않게 합니다. 성공하면 <code>file_integrity.exe</code>가 생깁니다.</p>
     </li>
